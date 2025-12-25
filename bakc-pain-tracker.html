@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Back Recovery Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --success: #22c55e;
+            --warning: #f97316;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --subtext: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --radius: 12px;
+            --nav-height: 60px;
+            --header-height: 50px;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- LAYOUT UTILS --- */
+        .app-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .header {
+            height: var(--header-height);
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .header-title { font-weight: 800; font-size: 18px; color: var(--primary); }
+        .header-btn { background: none; border: none; font-size: 20px; cursor: pointer; padding: 8px; }
+
+        .scroll-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            padding-bottom: 80px;
+            scroll-behavior: smooth;
+        }
+
+        .content-wrapper {
+            max-width: 500px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* --- CARDS & ACCORDIONS --- */
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .accordion-header {
+            width: 100%;
+            text-align: left;
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease;
+            opacity: 0;
+            margin-top: 0;
+        }
+        .accordion-content.open {
+            max-height: 400px;
+            opacity: 1;
+            margin-top: 12px;
+        }
+
+        /* --- STATS & BADGES --- */
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .streak-badge {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--warning);
+        }
+        .next-badge-container {
+            margin-top: 12px;
+            background: #fff7ed;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .progress-bar-bg {
+            flex: 1;
+            height: 8px;
+            background: #fed7aa;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--warning);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .badge-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 8px;
+        }
+        .badge-item {
+            text-align: center;
+            padding: 8px 4px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            opacity: 0.4;
+            transition: all 0.3s;
+        }
+        .badge-item.unlocked {
+            opacity: 1;
+            background: #fffbeb;
+            border: 1px solid #fcd34d;
+            transform: scale(1.05);
+        }
+        .badge-icon { font-size: 24px; display: block; margin-bottom: 4px; }
+        .badge-name { font-size: 10px; font-weight: bold; display: block; }
+
+        /* --- BUTTONS --- */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            min-height: 48px;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
+        .btn-danger { background: var(--danger); color: white; }
+
+        /* --- NAVIGATION --- */
+        .bottom-nav {
+            height: var(--nav-height);
+            background: var(--card-bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-shrink: 0;
+            z-index: 20;
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 10px;
+            background: none;
+            border: none;
+            color: var(--subtext);
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+            justify-content: center;
+        }
+        .nav-item.active { color: var(--primary); }
+        .nav-icon { font-size: 20px; margin-bottom: 2px; }
+
+        /* --- CHECK-IN MODAL --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        
+        .modal-content {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 500px;
+            border-radius: 20px 20px 0 0;
+            padding: 24px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .modal-overlay.active .modal-content { transform: translateY(0); }
+
+        @media (min-width: 600px) {
+            .modal-overlay { align-items: center; }
+            .modal-content { border-radius: 20px; transform: scale(0.9); opacity: 0; }
+            .modal-overlay.active .modal-content { transform: scale(1); opacity: 1; }
+        }
+
+        /* Check-in Steps */
+        .step { display: none; animation: fadeIn 0.3s; }
+        .step.active { display: block; }
+        
+        /* Slider Styling */
+        input[type=range] {
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 4px solid white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            margin-top: -12px;
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.1); }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Confetti */
+        #confetti-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 200;
+        }
+
+        /* Utility */
+        .text-center { text-align: center; }
+        .text-sm { font-size: 14px; color: var(--subtext); }
+        .flex-row { display: flex; gap: 10px; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <canvas id="confetti-canvas"></canvas>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-title">BackTracker</div>
+            <button class="header-btn" onclick="app.openSettings()">⚙️</button>
+        </header>
+
+        <!-- Main Scrollable Area -->
+        <div class="scroll-area" id="main-scroll">
+            <div class="content-wrapper">
+
+                <!-- Today's Status Card -->
+                <div class="card" id="status-card">
+                    <h3 style="margin: 0 0 10px 0; font-size: 18px;">Today's Status</h3>
+                    <div id="today-status-content" class="text-sm">Loading...</div>
+                    <button class="btn btn-primary" style="margin-top: 12px;" onclick="app.openCheckInModal()">
+                        Start Check-in ✅
+                    </button>
+                </div>
+
+                <!-- Streaks Card -->
+                <div class="card">
+                    <div class="stats-row">
+                        <div>
+                            <div class="text-sm">Current Streak</div>
+                            <div class="streak-badge" id="streak-display">Start your streak!</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="text-sm">This Week</div>
+                            <div style="font-weight: bold; font-size: 18px;" id="weekly-display">0/7</div>
+                        </div>
+                    </div>
+                    
+                    <div class="next-badge-container">
+                        <span style="font-size: 16px;" id="next-badge-icon">🏆</span>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="badge-progress"></div>
+                        </div>
+                        <span id="next-badge-text" style="white-space: nowrap;">0 days to Week Warrior</span>
+                    </div>
+                </div>
+
+                <!-- Badges (Collapsible) -->
+                <div class="card">
+                    <button class="accordion-header" onclick="app.toggleAccordion('badges')">
+                        Badges <span id="arrow-badges">▼</span>
+                    </button>
+                    <div id="acc-badges" class="accordion-content">
+                        <div class="badge-grid" id="badge-container">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pain Trends (Collapsible) -->
+                <div class="card">
+                    <button class="accordion-header" onclick="app.toggleAccordion('trends')">
+                        Pain Trends <span id="arrow-trends">▼</span>
+                    </button>
+                    <div id="acc-trends" class="accordion-content open">
+                        <div style="height: 200px; width: 100%; position: relative;">
+                            <canvas id="painChart"></canvas>
+                        </div>
+                        <div class="text-center text-sm" style="margin-top: 10px;" id="trend-insight"></div>
+                    </div>
+                </div>
+
+                <!-- Settings (Hidden by default) -->
+                <div id="settings-view" class="card hidden">
+                    <h3>Settings</h3>
+                    <div class="flex-row">
+                        <button class="btn btn-outline" onclick="app.exportData()">📥 Export Data</button>
+                        <button class="btn btn-outline" onclick="document.getElementById('import-file').click()">📤 Import</button>
+                    </div>
+                    <input type="file" id="import-file" style="display: none" onchange="app.importData(this)">
+                    <button class="btn btn-outline" style="margin-top: 10px; border-color: var(--danger); color: var(--danger);" onclick="app.clearData()">Clear All Data</button>
+                    <div class="text-center text-sm" style="margin-top: 20px;">v1.0.0</div>
+                </div>
+
+                <button class="btn btn-outline" style="margin-top: 10px; border: 1px dashed var(--subtext);" onclick="app.shareProgress()">
+                    🖼️ Share Progress
+                </button>
+
+            </div>
+        </div>
+
+        <!-- Bottom Nav -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" onclick="app.switchTab('dashboard')">
+                <span class="nav-icon">📊</span>
+                <span>Track</span>
+            </button>
+            <button class="nav-item" onclick="app.openCheckInModal()">
+                <span class="nav-icon">✅</span>
+                <span>Check-In</span>
+            </button>
+            <button class="nav-item" onclick="app.switchTab('settings')">
+                <span class="nav-icon">⚙️</span>
+                <span>Settings</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- CHECK-IN MODAL -->
+    <div id="checkin-modal" class="modal-overlay">
+        <div class="modal-content">
+            
+            <!-- Step 1: Exercise -->
+            <div id="step-1" class="step active">
+                <h2 class="text-center">Did you exercise today?</h2>
+                <div style="height: 20px;"></div>
+                <div style="display: grid; gap: 12px;">
+                    <button class="btn btn-success" style="padding: 24px; font-size: 20px;" onclick="checkinFlow.selectExercise(true)">Yes! ✅</button>
+                    <button class="btn btn-outline" style="padding: 24px; font-size: 20px;" onclick="checkinFlow.selectExercise(false)">Not yet ❌</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Pain Level -->
+            <div id="step-2" class="step">
+                <h2 class="text-center">How is your pain?</h2>
+                <div class="text-center text-sm">Slide to rate (0-10)</div>
+                
+                <div style="display:flex; justify-content: space-between; padding: 0 10px; font-size: 20px;">
+                    <span>😊</span><span>😐</span><span>😣</span><span>🤕</span><span>😰</span>
+                </div>
+                
+                <div class="text-center" style="margin: 20px 0;">
+                    <span id="pain-val-display" style="font-size: 48px; font-weight: 800; color: var(--success);">0</span>
+                </div>
+                
+                <input type="range" id="pain-slider" min="0" max="10" value="0" oninput="checkinFlow.updateSlider(this.value)">
+                
+                <div class="flex-row" style="margin-top: 24px;">
+                    <button class="btn btn-outline" onclick="checkinFlow.prevStep()">Back</button>
+                    <button class="btn btn-primary" onclick="checkinFlow.nextStep()">Next</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Summary (Previously Step 4) -->
+            <div id="step-3" class="step">
+                <h2 class="text-center">Summary</h2>
+                <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
+                        <span>Exercise:</span>
+                        <strong id="sum-exercise"></strong>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Pain Level:</span>
+                        <strong id="sum-pain"></strong>
+                    </div>
+                </div>
+                
+                <button class="btn btn-success" style="margin-bottom: 10px;" onclick="checkinFlow.finish()">Save & Done! 🎉</button>
+                <button class="btn btn-outline" onclick="app.closeCheckInModal()">Cancel</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- SHARE MODAL -->
+    <dialog id="share-dialog" style="border:none; padding:0; border-radius:12px; max-width:90%;">
+        <div style="padding:20px; text-align: center;">
+            <h3>Share Your Progress</h3>
+            <canvas id="share-canvas" style="max-width: 100%; border:1px solid #eee; border-radius:8px; margin: 10px 0;"></canvas>
+            <button class="btn btn-primary" onclick="app.downloadShare()">Download Image</button>
+            <button class="btn btn-outline" onclick="document.getElementById('share-dialog').close()">Close</button>
+        </div>
+    </dialog>
+
+    <script>
+        // --- APP DATA & STATE ---
+        const appData = {
+            checkIns: [],
+            settings: { firstTime: true }
+        };
+
+        const SAMPLE_DATA = [
+            { date: '2023-09-01', exercised: true, painLevel: 8 },
+            { date: '2023-09-02', exercised: true, painLevel: 7 },
+            { date: '2023-09-03', exercised: true, painLevel: 6 },
+            { date: '2023-09-04', exercised: false, painLevel: 7 },
+            { date: '2023-09-05', exercised: true, painLevel: 5 },
+            { date: '2023-09-06', exercised: true, painLevel: 4 },
+            { date: '2023-09-07', exercised: true, painLevel: 3 }
+        ];
+
+        // --- UTILS ---
+        const $ = (id) => document.getElementById(id);
+        const todayStr = () => new Date().toISOString().split('T')[0];
+
+        // --- APP LOGIC ---
+        const app = {
+            init: function() {
+                this.loadData();
+                this.renderDashboard();
+                window.addEventListener('resize', this.postMessageHeight);
+                setTimeout(this.postMessageHeight, 500);
+            },
+
+            loadData: function() {
+                const stored = localStorage.getItem('bt_data');
+                if (stored) {
+                    appData.checkIns = JSON.parse(stored).checkIns || [];
+                    appData.settings = JSON.parse(stored).settings || { firstTime: false };
+                }
+            },
+
+            saveData: function() {
+                localStorage.setItem('bt_data', JSON.stringify(appData));
+            },
+
+            postMessageHeight: function() {
+                if(window.parent !== window) {
+                    window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
+                }
+            },
+
+            getData: function() {
+                // Return sample data if empty, else real data
+                return appData.checkIns.length > 0 ? appData.checkIns : SAMPLE_DATA;
+            },
+
+            renderDashboard: function() {
+                const data = this.getData();
+                const todayEntry = appData.checkIns.find(c => c.date === todayStr());
+
+                // 1. Today's Status
+                const statusEl = $('today-status-content');
+                const btn = $('status-card').querySelector('.btn-primary');
+                if (todayEntry) {
+                    statusEl.innerHTML = `<span style="color:var(--success); font-weight:bold;">✅ Logged!</span> Pain: ${todayEntry.painLevel}/10`;
+                    btn.textContent = "Update Today's Entry";
+                    btn.classList.replace('btn-primary', 'btn-outline');
+                } else {
+                    statusEl.textContent = "No check-in recorded yet today.";
+                    btn.textContent = "Start Check-in ✅";
+                    btn.classList.replace('btn-outline', 'btn-primary');
+                }
+
+                // 2. Streaks
+                const streak = this.calcStreak(appData.checkIns);
+                const streakEl = $('streak-display');
+                if (streak === 0) streakEl.textContent = "Start your streak!";
+                else streakEl.textContent = `🔥 ${streak} Days`;
+
+                const weekCount = appData.checkIns.filter(c => {
+                    const d = new Date(c.date);
+                    const now = new Date();
+                    const diff = (now - d) / (1000 * 60 * 60 * 24);
+                    return diff < 7 && c.exercised;
+                }).length;
+                $('weekly-display').textContent = `${weekCount}/7`;
+
+                // 3. Badges & Progress
+                this.renderBadges(streak);
+                
+                // 4. Chart
+                this.renderChart(data);
+
+                // 5. Settings Toggle
+                if (this.currentTab === 'settings') $('settings-view').classList.remove('hidden');
+                else $('settings-view').classList.add('hidden');
+            },
+
+            calcStreak: function(checks) {
+                if (checks.length === 0) return 0;
+                // Sort desc
+                const sorted = [...checks].sort((a,b) => new Date(b.date) - new Date(a.date));
+                
+                // If latest check isn't today or yesterday, streak is 0
+                const today = new Date(todayStr());
+                const latest = new Date(sorted[0].date);
+                const diffDays = Math.floor((today - latest) / (1000*60*60*24));
+                
+                // If latest is future (impossible but handle), or > 1 day ago without exercise today
+                if (diffDays > 1) return 0;
+                
+                let count = 0;
+                let currentDate = new Date(today);
+                
+                // Iterate backwards
+                for (let i = 0; i < 365; i++) {
+                    const dStr = currentDate.toISOString().split('T')[0];
+                    const entry = checks.find(c => c.date === dStr);
+                    
+                    if (entry && entry.exercised) {
+                        count++;
+                    } else if (entry && !entry.exercised) {
+                        // Break streak if missed
+                        break;
+                    } else if (!entry && dStr !== todayStr()) {
+                        // Break streak if no data for past days
+                        break;
+                    }
+                    currentDate.setDate(currentDate.getDate() - 1);
+                }
+                return count;
+            },
+
+            renderBadges: function(streak) {
+                const badges = [
+                    { id: 7, name: "Week Warrior", icon: "🏆" },
+                    { id: 14, name: "Two Week Titan", icon: "💪" },
+                    { id: 30, name: "Month Master", icon: "⭐" },
+                    { id: 60, name: "Consistency King", icon: "👑" }
+                ];
+
+                const container = $('badge-container');
+                container.innerHTML = '';
+                
+                let nextBadge = badges[0];
+                let prevTarget = 0;
+
+                badges.forEach(b => {
+                    const unlocked = streak >= b.id;
+                    const div = document.createElement('div');
+                    div.className = `badge-item ${unlocked ? 'unlocked' : ''}`;
+                    div.innerHTML = `<span class="badge-icon">${b.icon}</span><span class="badge-name">${b.name}</span>`;
+                    container.appendChild(div);
+
+                    if (!unlocked && nextBadge.id >= b.id) nextBadge = b;
+                    if (unlocked) prevTarget = b.id;
+                });
+
+                // Update Progress Bar
+                const progress = streak - prevTarget;
+                const total = nextBadge.id - prevTarget;
+                const pct = Math.min(100, Math.max(0, (progress/total)*100));
+                
+                $('badge-progress').style.width = `${pct}%`;
+                $('next-badge-icon').textContent = nextBadge.icon;
+                $('next-badge-text').textContent = `${nextBadge.id - streak} days to ${nextBadge.name}`;
+            },
+
+            renderChart: function(data) {
+                const ctx = $('painChart').getContext('2d');
+                
+                // Prepare Data
+                const labels = data.map(d => d.date.slice(5)); // MM-DD
+                const painLevels = data.map(d => d.painLevel);
+
+                // If it's sample data, add a label
+                const isSample = appData.checkIns.length === 0;
+                $('trend-insight').textContent = isSample 
+                    ? "👀 Showing sample data. Log your first entry to start tracking!" 
+                    : "Your recovery journey";
+
+                if (window.myChart) window.myChart.destroy();
+
+                window.myChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Pain Level',
+                            data: painLevels,
+                            borderColor: '#3b82f6',
+                            backgroundColor: (context) => {
+                                const ctx = context.chart.ctx;
+                                const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+                                gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+                                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+                                return gradient;
+                            },
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: painLevels.map(p => {
+                                if(p <= 3) return '#22c55e';
+                                if(p <= 6) return '#f97316';
+                                return '#ef4444';
+                            }),
+                            pointRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 10,
+                                grid: {
+                                    color: (ctx) => {
+                                        if (ctx.tick.value > 6) return 'rgba(239, 68, 68, 0.1)'; // Red zone
+                                        if (ctx.tick.value > 3) return 'rgba(249, 115, 22, 0.1)'; // Orange zone
+                                        return 'rgba(34, 197, 94, 0.1)'; // Green zone
+                                    }
+                                }
+                            },
+                            x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } }
+                        }
+                    }
+                });
+            },
+
+            toggleAccordion: function(id) {
+                const el = $('acc-' + id);
+                const arrow = $('arrow-' + id);
+                el.classList.toggle('open');
+                arrow.textContent = el.classList.contains('open') ? '▲' : '▼';
+            },
+
+            switchTab: function(tab) {
+                this.currentTab = tab;
+                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                // Reset nav styling
+                if(tab === 'dashboard') document.querySelectorAll('.nav-item')[0].classList.add('active');
+                if(tab === 'settings') document.querySelectorAll('.nav-item')[2].classList.add('active');
+                
+                this.renderDashboard();
+                
+                // Scroll to top
+                $('main-scroll').scrollTop = 0;
+            },
+
+            openSettings: function() { this.switchTab('settings'); },
+            openCheckInModal: function() {
+                checkinFlow.reset();
+                $('checkin-modal').classList.add('active');
+            },
+            closeCheckInModal: function() {
+                $('checkin-modal').classList.remove('active');
+            },
+
+            // --- DATA MANAGEMENT ---
+            clearData: function() {
+                if(confirm("Delete all history?")) {
+                    appData.checkIns = [];
+                    this.saveData();
+                    this.renderDashboard();
+                }
+            },
+            exportData: function() {
+                const str = JSON.stringify(appData);
+                const uri = "data:application/json;charset=utf-8,"+encodeURIComponent(str);
+                const link = document.createElement("a");
+                link.href = uri;
+                link.download = "backtracker.json";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            },
+            importData: function(input) {
+                const file = input.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const json = JSON.parse(e.target.result);
+                        if(json.checkIns) {
+                            appData.checkIns = json.checkIns;
+                            appData.settings = json.settings;
+                            this.saveData();
+                            alert("Restored!");
+                            this.renderDashboard();
+                        }
+                    } catch(err) { alert("Invalid file"); }
+                };
+                reader.readAsText(file);
+            },
+            
+            // --- SHARE IMAGE ---
+            shareProgress: function() {
+                const cvs = $('share-canvas');
+                cvs.width = 600;
+                cvs.height = 400;
+                const ctx = cvs.getContext('2d');
+                
+                // Background
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0,0,600,400);
+                
+                // Header Box
+                ctx.fillStyle = '#3b82f6';
+                ctx.fillRect(0,0,600,100);
+                
+                // Text
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 30px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('My Back Recovery', 300, 50);
+                
+                // Stats
+                ctx.fillStyle = '#1e293b';
+                ctx.font = 'bold 60px Arial';
+                const streak = this.calcStreak(appData.checkIns);
+                ctx.fillText(streak === 0 ? "Start" : `${streak} Days`, 300, 200);
+                
+                ctx.fillStyle = '#64748b';
+                ctx.font = '20px Arial';
+                ctx.fillText('Current Streak', 300, 240);
+
+                // Badge
+                const badgeCount = document.querySelectorAll('.badge-item.unlocked').length;
+                ctx.fillStyle = '#f59e0b';
+                ctx.fillText(`🏆 ${badgeCount} Badges Earned`, 300, 320);
+                
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = '14px Arial';
+                ctx.fillText('Generated by BackTracker', 300, 380);
+
+                $('share-dialog').showModal();
+            },
+            
+            downloadShare: function() {
+                const link = document.createElement('a');
+                link.download = 'my-progress.png';
+                link.href = $('share-canvas').toDataURL();
+                link.click();
+            }
+        };
+
+        // --- CHECK-IN FLOW LOGIC ---
+        const checkinFlow = {
+            data: { exercised: false, painLevel: 0 },
+            
+            reset: function() {
+                this.data = { exercised: false, painLevel: 0 };
+                this.showStep(1);
+                // Reset UI
+                $('pain-slider').value = 0;
+                this.updateSlider(0);
+            },
+
+            showStep: function(num) {
+                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+                $(`step-${num}`).classList.add('active');
+            },
+
+            selectExercise: function(val) {
+                this.data.exercised = val;
+                this.nextStep();
+            },
+
+            updateSlider: function(val) {
+                this.data.painLevel = parseInt(val);
+                const display = $('pain-val-display');
+                display.textContent = val;
+                display.className = ''; // reset
+                
+                if(val <= 3) display.style.color = 'var(--success)';
+                else if(val <= 6) display.style.color = 'var(--warning)';
+                else display.style.color = 'var(--danger)';
+            },
+
+            prevStep: function() {
+                const current = document.querySelector('.step.active').id;
+                const num = parseInt(current.split('-')[1]);
+                if(num > 1) this.showStep(num - 1);
+            },
+
+            nextStep: function() {
+                const current = document.querySelector('.step.active').id;
+                const num = parseInt(current.split('-')[1]);
+                
+                // Moving from Step 2 (Pain) to Step 3 (Summary)
+                if(num === 2) {
+                    $('sum-exercise').textContent = this.data.exercised ? "Yes ✅" : "No ❌";
+                    $('sum-pain').textContent = `${this.data.painLevel}/10`;
+                    this.showStep(3);
+                } else if (num < 3) {
+                    this.showStep(num + 1);
+                }
+            },
+
+            finish: function() {
+                const today = todayStr();
+                const entry = {
+                    date: today,
+                    exercised: this.data.exercised,
+                    painLevel: this.data.painLevel
+                };
+
+                // Check if update or new
+                const idx = appData.checkIns.findIndex(c => c.date === today);
+                if(idx > -1) appData.checkIns[idx] = entry;
+                else appData.checkIns.push(entry);
+
+                app.saveData();
+                app.closeCheckInModal();
+                app.renderDashboard();
+
+                if(this.data.exercised) {
+                    fireConfetti();
+                }
+            }
+        };
+
+        // --- CONFETTI ---
+        function fireConfetti() {
+            const cvs = $('confetti-canvas');
+            const ctx = cvs.getContext('2d');
+            cvs.width = window.innerWidth;
+            cvs.height = window.innerHeight;
+            
+            const particles = [];
+            const colors = ['#3b82f6', '#22c55e', '#f97316', '#ef4444'];
+            
+            for(let i=0; i<80; i++) {
+                particles.push({
+                    x: cvs.width/2, y: cvs.height/2,
+                    vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15-5,
+                    color: colors[Math.floor(Math.random()*colors.length)],
+                    size: Math.random()*8+4
+                });
+            }
+            
+            function animate() {
+                ctx.clearRect(0,0,cvs.width,cvs.height);
+                let active = false;
+                particles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.5; // gravity
+                    if(p.y < cvs.height) {
+                        active = true;
+                        ctx.fillStyle = p.color;
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                if(active) requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => app.init());
+
+    </script>
+</body>
+</html>
