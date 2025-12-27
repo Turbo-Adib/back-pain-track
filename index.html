@@ -69,6 +69,16 @@
             border: 1px solid var(--border);
         }
 
+        /* --- INPUTS --- */
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
         /* --- STATS & BADGES --- */
         .stats-row {
             display: flex;
@@ -146,6 +156,7 @@
         .btn-primary { background: var(--primary); color: white; }
         .btn-success { background: var(--success); color: white; }
         .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
+        .btn-sm { padding: 8px 12px; font-size: 14px; min-height: auto; }
 
         /* --- NAVIGATION --- */
         .bottom-nav {
@@ -174,7 +185,7 @@
         .nav-item.active { color: var(--primary); }
         .nav-icon { font-size: 20px; margin-bottom: 2px; }
 
-        /* --- CHECK-IN MODAL --- */
+        /* --- MODALS --- */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -311,11 +322,29 @@
                     </div>
                 </div>
 
+                <!-- Share Button -->
+                <button class="btn btn-outline" style="border-style: dashed; font-size: 16px;" onclick="app.shareProgress()">
+                    🖼️ Share Progress
+                </button>
+
                 <!-- Settings (Hidden by default) -->
                 <div id="settings-view" class="card hidden">
                     <h3 style="margin-top:0;">Settings</h3>
+                    
+                    <!-- Simple Profile Switcher -->
+                    <div style="background: #f0f9ff; padding: 12px; border-radius: 8px; border: 1px solid #bae6fd; margin-bottom: 16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <strong>👤 Current User</strong>
+                            <span id="current-user-display" style="font-weight:bold; color:var(--primary);">User</span>
+                        </div>
+                        <p class="text-sm" style="margin:0 0 10px 0;">Switch profiles to track separately on this device.</p>
+                        <input type="text" id="username-input" placeholder="Enter your name (e.g. Alex)">
+                        <button class="btn btn-primary btn-sm" onclick="app.switchUser()">Switch Profile</button>
+                    </div>
+
+                    <h4>Data Management</h4>
                     <div class="flex-row">
-                        <button class="btn btn-outline" onclick="app.exportData()">📥 Export Data</button>
+                        <button class="btn btn-outline" onclick="app.exportData()">📥 Export</button>
                         <button class="btn btn-outline" onclick="document.getElementById('import-file').click()">📤 Import</button>
                     </div>
                     <input type="file" id="import-file" style="display: none" onchange="app.importData(this)">
@@ -345,7 +374,6 @@
     <!-- CHECK-IN MODAL -->
     <div id="checkin-modal" class="modal-overlay">
         <div class="modal-content">
-            
             <!-- Step 1: Exercise -->
             <div id="step-1" class="step active">
                 <h2 class="text-center">Did you exercise today?</h2>
@@ -398,11 +426,23 @@
         </div>
     </div>
 
+    <!-- SHARE MODAL -->
+    <dialog id="share-dialog" style="border:none; padding:0; border-radius:12px; max-width:90%; width: 400px;">
+        <div style="padding:20px; text-align: center;">
+            <h3>Share Your Progress</h3>
+            <canvas id="share-canvas" width="600" height="400" style="max-width: 100%; border:1px solid #eee; border-radius:8px; margin: 10px 0;"></canvas>
+            <button class="btn btn-primary" onclick="app.downloadShare()">Download Image</button>
+            <button class="btn btn-outline" style="margin-top:8px;" onclick="document.getElementById('share-dialog').close()">Close</button>
+        </div>
+    </dialog>
+
     <script>
         // --- APP DATA & STATE ---
+        // We use a simple namespace strategy: bt_data_USERNAME
         const appData = {
             checkIns: [],
-            settings: { firstTime: true }
+            settings: { firstTime: true },
+            currentUser: localStorage.getItem('bt_current_user') || 'User'
         };
 
         const SAMPLE_DATA = [
@@ -418,26 +458,67 @@
         // --- UTILS ---
         const $ = (id) => document.getElementById(id);
         const todayStr = () => new Date().toISOString().split('T')[0];
+        const getStorageKey = () => `bt_data_${appData.currentUser}`;
 
         // --- APP LOGIC ---
         const app = {
             init: function() {
                 this.loadData();
+                this.updateUserDisplay();
                 this.renderDashboard();
                 window.addEventListener('resize', this.postMessageHeight);
                 setTimeout(this.postMessageHeight, 500);
             },
 
             loadData: function() {
-                const stored = localStorage.getItem('bt_data');
+                const stored = localStorage.getItem(getStorageKey());
                 if (stored) {
-                    appData.checkIns = JSON.parse(stored).checkIns || [];
-                    appData.settings = JSON.parse(stored).settings || { firstTime: false };
+                    const parsed = JSON.parse(stored);
+                    appData.checkIns = parsed.checkIns || [];
+                    appData.settings = parsed.settings || { firstTime: false };
                 }
             },
 
             saveData: function() {
-                localStorage.setItem('bt_data', JSON.stringify(appData));
+                localStorage.setItem(getStorageKey(), JSON.stringify({
+                    checkIns: appData.checkIns,
+                    settings: appData.settings
+                }));
+                // Save current user state globally
+                localStorage.setItem('bt_current_user', appData.currentUser);
+            },
+
+            switchUser: function() {
+                const input = $('username-input');
+                const name = input.value.trim();
+                
+                if(!name) {
+                    alert("Please enter a name");
+                    return;
+                }
+
+                if(name === appData.currentUser) {
+                    alert("You are already using this name!");
+                    return;
+                }
+
+                // Save current user's data before switching
+                this.saveData();
+
+                // Switch
+                appData.currentUser = name;
+                $('username-input').value = '';
+                
+                // Reload data for new user
+                this.loadData();
+                this.updateUserDisplay();
+                this.renderDashboard();
+                
+                this.showToast(`Switched to ${name}`);
+            },
+
+            updateUserDisplay: function() {
+                $('current-user-display').textContent = appData.currentUser;
             },
 
             postMessageHeight: function() {
@@ -448,6 +529,22 @@
 
             getData: function() {
                 return appData.checkIns.length > 0 ? appData.checkIns : SAMPLE_DATA;
+            },
+
+            showToast: function(msg) {
+                const div = document.createElement('div');
+                div.textContent = msg;
+                div.style.cssText = `
+                    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+                    background: #333; color: white; padding: 12px 24px; border-radius: 30px;
+                    font-size: 14px; z-index: 1000; opacity: 0; transition: opacity 0.3s;
+                `;
+                document.body.appendChild(div);
+                setTimeout(() => div.style.opacity = '1', 10);
+                setTimeout(() => {
+                    div.style.opacity = '0';
+                    setTimeout(() => div.remove(), 300);
+                }, 3000);
             },
 
             renderDashboard: function() {
@@ -640,18 +737,21 @@
             },
 
             clearData: function() {
-                if(confirm("Delete all history?")) {
+                if(confirm(`Delete all history for ${appData.currentUser}?`)) {
                     appData.checkIns = [];
                     this.saveData();
                     this.renderDashboard();
                 }
             },
             exportData: function() {
-                const str = JSON.stringify(appData);
+                const str = JSON.stringify({
+                    ...appData,
+                    currentUser: appData.currentUser // Keep username info in export
+                });
                 const uri = "data:application/json;charset=utf-8,"+encodeURIComponent(str);
                 const link = document.createElement("a");
                 link.href = uri;
-                link.download = "backtracker.json";
+                link.download = `backtracker-${appData.currentUser}.json`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -664,15 +764,74 @@
                     try {
                         const json = JSON.parse(e.target.result);
                         if(json.checkIns) {
+                            // If the imported file has a username, ask if we want to switch to that user
+                            if(json.currentUser && json.currentUser !== appData.currentUser) {
+                                if(confirm(`Switch user to ${json.currentUser} to load this data?`)) {
+                                    appData.currentUser = json.currentUser;
+                                }
+                            }
+                            
                             appData.checkIns = json.checkIns;
-                            appData.settings = json.settings;
+                            appData.settings = json.settings || { firstTime: false };
                             this.saveData();
+                            this.updateUserDisplay();
                             alert("Restored!");
                             this.renderDashboard();
                         }
                     } catch(err) { alert("Invalid file"); }
                 };
                 reader.readAsText(file);
+            },
+
+            // --- SHARE FUNCTIONALITY ---
+            shareProgress: function() {
+                const cvs = $('share-canvas');
+                const ctx = cvs.getContext('2d');
+                
+                // Clear
+                ctx.clearRect(0,0, cvs.width, cvs.height);
+                
+                // Background
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0,0,600,400);
+                
+                // Header Box
+                ctx.fillStyle = '#3b82f6';
+                ctx.fillRect(0,0,600,100);
+                
+                // Text
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 30px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('My Back Recovery', 300, 50);
+                
+                // Stats
+                ctx.fillStyle = '#1e293b';
+                ctx.font = 'bold 60px Arial';
+                const streak = this.calcStreak(appData.checkIns);
+                ctx.fillText(streak === 0 ? "Start" : `${streak} Days`, 300, 200);
+                
+                ctx.fillStyle = '#64748b';
+                ctx.font = '20px Arial';
+                ctx.fillText('Current Streak', 300, 240);
+
+                // Badge Count
+                const badgeCount = document.querySelectorAll('.badge-item.unlocked').length;
+                ctx.fillStyle = '#f59e0b';
+                ctx.fillText(`🏆 ${badgeCount} Badges Earned`, 300, 320);
+                
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = '14px Arial';
+                ctx.fillText(`User: ${appData.currentUser}`, 300, 380);
+
+                $('share-dialog').showModal();
+            },
+            
+            downloadShare: function() {
+                const link = document.createElement('a');
+                link.download = 'my-progress.png';
+                link.href = $('share-canvas').toDataURL();
+                link.click();
             }
         };
 
