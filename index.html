@@ -3,22 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Tracker</title>
+    <title>BackTracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- FIREBASE SDKs (Modular v9) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+        // Expose to window for use in main script
+        window.fbLib = { initializeApp, getDatabase, ref, set, get, onValue };
+    </script>
+
     <style>
         :root {
             --primary: #3b82f6;
+            --primary-dark: #2563eb;
             --success: #22c55e;
-            --warning: #f97316;
             --danger: #ef4444;
             --bg: #f8fafc;
             --card-bg: #ffffff;
             --text: #1e293b;
             --subtext: #64748b;
             --border: #e2e8f0;
-            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-            --radius: 12px;
-            --nav-height: 60px;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --radius: 16px;
         }
 
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -31,919 +40,430 @@
             padding: 0;
             height: 100vh;
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
         }
 
-        /* --- LAYOUT UTILS --- */
+        /* --- LAYOUT --- */
+        .full-screen-center {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--bg); z-index: 100;
+        }
+
         .app-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            position: relative;
+            display: none; /* Hidden by default */
+            flex-direction: column; height: 100vh; width: 100%;
         }
 
         .scroll-area {
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px;
-            padding-bottom: 80px;
-            scroll-behavior: smooth;
+            flex: 1; overflow-y: auto; padding: 12px; padding-bottom: 80px;
         }
 
         .content-wrapper {
-            max-width: 500px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
+            max-width: 500px; margin: 0 auto;
         }
 
-        /* --- CARDS --- */
+        /* --- LOGIN CARD --- */
+        .login-card {
+            background: var(--card-bg); width: 90%; max-width: 360px;
+            padding: 32px 24px; border-radius: var(--radius);
+            box-shadow: var(--shadow); text-align: center;
+        }
+
+        .login-title { font-size: 28px; font-weight: 800; color: var(--primary); margin: 0 0 8px 0; }
+        .login-subtitle { color: var(--subtext); font-size: 14px; margin-bottom: 24px; }
+
+        .input-group { margin-bottom: 16px; text-align: left; }
+        .input-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+        
+        .form-input {
+            width: 100%; padding: 14px; border: 1px solid var(--border);
+            border-radius: 8px; font-size: 16px; outline: none; transition: border-color 0.2s;
+        }
+        .form-input:focus { border-color: var(--primary); }
+        
+        .pin-wrapper { position: relative; }
+        .pin-wrapper input { padding-right: 44px; }
+        .toggle-pin {
+            position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+            cursor: pointer; color: var(--subtext); font-size: 20px; user-select: none;
+        }
+
+        .error-msg {
+            color: var(--danger); font-size: 13px; margin-top: 6px;
+            min-height: 20px; opacity: 0; transition: opacity 0.2s;
+        }
+        .error-msg.visible { opacity: 1; }
+
+        .btn-primary {
+            width: 100%; padding: 16px; background: var(--primary); color: white;
+            border: none; border-radius: 8px; font-size: 18px; font-weight: 600;
+            cursor: pointer; transition: background 0.2s; margin-top: 10px;
+        }
+        .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+        .btn-primary:active:not(:disabled) { background: var(--primary-dark); }
+
+        /* --- LOADING SPINNER --- */
+        .loader-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); border-radius: var(--radius);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 10; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .loader-overlay.active { opacity: 1; pointer-events: auto; }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #e2e8f0;
+            border-top: 4px solid var(--primary); border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* --- DASHBOARD (Simplified for this file) --- */
         .card {
-            background: var(--card-bg);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 16px;
-            border: 1px solid var(--border);
+            background: var(--card-bg); border-radius: 12px; padding: 16px;
+            margin-bottom: 16px; border: 1px solid var(--border); box-shadow: var(--shadow);
         }
-
-        /* --- INPUTS --- */
-        input[type="text"] {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 16px;
-            margin-bottom: 8px;
+        .logout-btn {
+            background: none; border: none; color: var(--subtext); font-size: 14px;
+            text-decoration: underline; cursor: pointer; margin-top: 20px;
         }
-
-        /* --- STATS & BADGES --- */
-        .stats-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .streak-badge {
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--warning);
-        }
-        .next-badge-container {
-            margin-top: 12px;
-            background: #fff7ed;
-            padding: 8px;
-            border-radius: 8px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .progress-bar-bg {
-            flex: 1;
-            height: 8px;
-            background: #fed7aa;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background: var(--warning);
-            width: 0%;
-            transition: width 0.5s ease;
-        }
-
-        .badge-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-            gap: 8px;
-        }
-        .badge-item {
-            text-align: center;
-            padding: 8px 4px;
-            border-radius: 8px;
-            background: #f1f5f9;
-            opacity: 0.4;
-            transition: all 0.3s;
-        }
-        .badge-item.unlocked {
-            opacity: 1;
-            background: #fffbeb;
-            border: 1px solid #fcd34d;
-            transform: scale(1.05);
-        }
-        .badge-icon { font-size: 24px; display: block; margin-bottom: 4px; }
-        .badge-name { font-size: 10px; font-weight: bold; display: block; }
-
-        /* --- BUTTONS --- */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 14px 20px;
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: 18px;
-            border: none;
-            cursor: pointer;
-            width: 100%;
-            min-height: 52px;
-            transition: transform 0.1s;
-        }
-        .btn:active { transform: scale(0.98); }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-success { background: var(--success); color: white; }
-        .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
-        .btn-sm { padding: 8px 12px; font-size: 14px; min-height: auto; }
-
-        /* --- NAVIGATION --- */
-        .bottom-nav {
-            height: var(--nav-height);
-            background: var(--card-bg);
-            border-top: 1px solid var(--border);
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            flex-shrink: 0;
-            z-index: 20;
-        }
-        .nav-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            font-size: 10px;
-            background: none;
-            border: none;
-            color: var(--subtext);
-            cursor: pointer;
-            width: 100%;
-            height: 100%;
-            justify-content: center;
-        }
-        .nav-item.active { color: var(--primary); }
-        .nav-icon { font-size: 20px; margin-bottom: 2px; }
-
-        /* --- MODALS --- */
+        
+        /* --- MODAL FOR DASHBOARD --- */
         .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            z-index: 100;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 50;
         }
-        .modal-overlay.active { opacity: 1; pointer-events: auto; }
-        
+        .modal-overlay.active { display: flex; }
         .modal-content {
-            background: var(--card-bg);
-            width: 100%;
-            max-width: 500px;
-            border-radius: 20px 20px 0 0;
-            padding: 24px;
-            max-height: 90vh;
-            overflow-y: auto;
-            transform: translateY(100%);
-            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            background: white; padding: 24px; border-radius: 12px;
+            width: 90%; max-width: 350px; text-align: center;
         }
-        .modal-overlay.active .modal-content { transform: translateY(0); }
-
-        @media (min-width: 600px) {
-            .modal-overlay { align-items: center; }
-            .modal-content { border-radius: 20px; transform: scale(0.9); opacity: 0; }
-            .modal-overlay.active .modal-content { transform: scale(1); opacity: 1; }
-        }
-
-        /* Check-in Steps */
-        .step { display: none; animation: fadeIn 0.3s; }
-        .step.active { display: block; }
-        
-        /* Slider Styling */
-        input[type=range] {
-            width: 100%;
-            height: 8px;
-            background: #e2e8f0;
-            border-radius: 4px;
-            outline: none;
-            -webkit-appearance: none;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: var(--primary);
-            border: 4px solid white;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-            margin-top: -12px;
-        }
-
-        /* Utility */
-        .text-center { text-align: center; }
-        .text-sm { font-size: 14px; color: var(--subtext); }
-        .flex-row { display: flex; gap: 10px; }
-        .hidden { display: none !important; }
-        
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* Confetti */
-        #confetti-canvas {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 200;
-        }
+        .slider-row { display: flex; align-items: center; justify-content: space-between; margin: 20px 0; }
     </style>
 </head>
 <body>
 
-    <canvas id="confetti-canvas"></canvas>
+    <!-- 1. LOGIN SCREEN -->
+    <div id="login-screen" class="full-screen-center">
+        <div class="login-card">
+            <h1 class="login-title">BackTracker</h1>
+            <p class="login-subtitle">Enter your details to continue</p>
 
-    <div class="app-container">
-        <!-- Main Scrollable Area -->
-        <div class="scroll-area" id="main-scroll">
-            <div class="content-wrapper">
+            <div class="input-group">
+                <label class="input-label">Name</label>
+                <input type="text" id="login-name" class="form-input" placeholder="Enter your name" autocomplete="off">
+                <div id="name-error" class="error-msg">Name must be at least 2 letters</div>
+            </div>
 
-                <!-- Main Action Card -->
-                <div class="card" id="status-card" style="text-align: center; border-left: 5px solid var(--primary);">
-                    <div class="text-sm" style="margin-bottom: 5px;">Daily Check-In</div>
-                    <button id="main-action-btn" class="btn btn-primary" onclick="app.openCheckInModal()">
-                        Start Today ✅
-                    </button>
-                    <div id="status-summary" class="text-sm" style="margin-top: 8px;">Not logged yet</div>
+            <div class="input-group">
+                <label class="input-label">4-Digit PIN</label>
+                <div class="pin-wrapper">
+                    <input type="password" id="login-pin" class="form-input" placeholder="Create/enter PIN" maxlength="4">
+                    <span class="toggle-pin" id="pin-toggle">👁️</span>
                 </div>
+                <div id="pin-error" class="error-msg">PIN must be exactly 4 digits</div>
+            </div>
 
-                <!-- Streaks Card -->
-                <div class="card">
-                    <div class="stats-row">
-                        <div>
-                            <div class="text-sm">Current Streak</div>
-                            <div class="streak-badge" id="streak-display">Start your streak!</div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div class="text-sm">This Week</div>
-                            <div style="font-weight: bold; font-size: 18px;" id="weekly-display">0/7</div>
-                        </div>
-                    </div>
-                    
-                    <div class="next-badge-container">
-                        <span style="font-size: 16px;" id="next-badge-icon">🏆</span>
-                        <div class="progress-bar-bg">
-                            <div class="progress-bar-fill" id="badge-progress"></div>
-                        </div>
-                        <span id="next-badge-text" style="white-space: nowrap;">0 days to Week Warrior</span>
-                    </div>
-                </div>
-
-                <!-- Badges (Collapsible) -->
-                <div class="card">
-                    <button class="btn btn-outline" style="font-size: 14px; padding: 8px; margin-bottom: 10px;" onclick="app.toggleAccordion('badges')">
-                        Badges <span id="arrow-badges">▼</span>
-                    </button>
-                    <div id="acc-badges" class="accordion-content">
-                        <div class="badge-grid" id="badge-container">
-                            <!-- JS Populated -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Pain Trends (Collapsible) -->
-                <div class="card">
-                    <button class="btn btn-outline" style="font-size: 14px; padding: 8px; margin-bottom: 10px;" onclick="app.toggleAccordion('trends')">
-                        Pain Trends <span id="arrow-trends">▼</span>
-                    </button>
-                    <div id="acc-trends" class="accordion-content open">
-                        <div style="height: 200px; width: 100%; position: relative;">
-                            <canvas id="painChart"></canvas>
-                        </div>
-                        <div class="text-center text-sm" style="margin-top: 10px;" id="trend-insight"></div>
-                    </div>
-                </div>
-
-                <!-- Share Button -->
-                <button class="btn btn-outline" style="border-style: dashed; font-size: 16px;" onclick="app.shareProgress()">
-                    🖼️ Share Progress
-                </button>
-
-                <!-- Settings (Hidden by default) -->
-                <div id="settings-view" class="card hidden">
-                    <h3 style="margin-top:0;">Settings</h3>
-                    
-                    <!-- Simple Profile Switcher -->
-                    <div style="background: #f0f9ff; padding: 12px; border-radius: 8px; border: 1px solid #bae6fd; margin-bottom: 16px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <strong>👤 Current User</strong>
-                            <span id="current-user-display" style="font-weight:bold; color:var(--primary);">User</span>
-                        </div>
-                        <p class="text-sm" style="margin:0 0 10px 0;">Switch profiles to track separately on this device.</p>
-                        <input type="text" id="username-input" placeholder="Enter your name (e.g. Alex)">
-                        <button class="btn btn-primary btn-sm" onclick="app.switchUser()">Switch Profile</button>
-                    </div>
-
-                    <h4>Data Management</h4>
-                    <div class="flex-row">
-                        <button class="btn btn-outline" onclick="app.exportData()">📥 Export</button>
-                        <button class="btn btn-outline" onclick="document.getElementById('import-file').click()">📤 Import</button>
-                    </div>
-                    <input type="file" id="import-file" style="display: none" onchange="app.importData(this)">
-                    <button class="btn btn-outline" style="margin-top: 10px; border-color: var(--danger); color: var(--danger);" onclick="app.clearData()">Clear All Data</button>
-                </div>
-
+            <button id="btn-login" class="btn-primary" disabled>Start Tracking</button>
+            
+            <!-- Loading Spinner -->
+            <div id="login-loader" class="loader-overlay">
+                <div class="spinner"></div>
             </div>
         </div>
+    </div>
 
-        <!-- Bottom Nav -->
-        <nav class="bottom-nav">
-            <button class="nav-item active" onclick="app.switchTab('dashboard')">
-                <span class="nav-icon">📊</span>
-                <span>Track</span>
-            </button>
-            <button class="nav-item" onclick="app.openCheckInModal()">
-                <span class="nav-icon">✅</span>
-                <span>Check-In</span>
-            </button>
-            <button class="nav-item" onclick="app.switchTab('settings')">
-                <span class="nav-icon">⚙️</span>
-                <span>Settings</span>
-            </button>
-        </nav>
+    <!-- 2. DASHBOARD SCREEN -->
+    <div id="app-screen" class="app-container">
+        <div class="scroll-area">
+            <div class="content-wrapper">
+                <div class="card" style="text-align: center;">
+                    <h2 id="welcome-msg">Welcome!</h2>
+                    <p>Check in daily to track your progress.</p>
+                    <button class="btn-primary" onclick="app.openCheckIn()">Daily Check-In ✅</button>
+                    <button class="logout-btn" onclick="authManager.logout()">Switch User / Logout</button>
+                </div>
+
+                <!-- Stats Placeholder -->
+                <div class="card">
+                    <h3>Stats</h3>
+                    <p>Streak: <strong id="dash-streak">0</strong> Days</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- CHECK-IN MODAL -->
     <div id="checkin-modal" class="modal-overlay">
         <div class="modal-content">
-            <!-- Step 1: Exercise -->
-            <div id="step-1" class="step active">
-                <h2 class="text-center">Did you exercise today?</h2>
-                <div style="height: 20px;"></div>
-                <div style="display: grid; gap: 12px;">
-                    <button class="btn btn-success" style="padding: 24px; font-size: 20px;" onclick="checkinFlow.selectExercise(true)">Yes! ✅</button>
-                    <button class="btn btn-outline" style="padding: 24px; font-size: 20px;" onclick="checkinFlow.selectExercise(false)">Not yet ❌</button>
-                </div>
+            <h3>Did you exercise today?</h3>
+            <div class="slider-row">
+                <span>😊</span><span>😐</span><span>😣</span><span>🤕</span><span>😰</span>
             </div>
-
-            <!-- Step 2: Pain Level -->
-            <div id="step-2" class="step">
-                <h2 class="text-center">How is your pain?</h2>
-                <div class="text-center text-sm">Slide to rate (0-10)</div>
-                
-                <div style="display:flex; justify-content: space-between; padding: 0 10px; font-size: 20px;">
-                    <span>😊</span><span>😐</span><span>😣</span><span>🤕</span><span>😰</span>
-                </div>
-                
-                <div class="text-center" style="margin: 20px 0;">
-                    <span id="pain-val-display" style="font-size: 48px; font-weight: 800; color: var(--success);">0</span>
-                </div>
-                
-                <input type="range" id="pain-slider" min="0" max="10" value="0" oninput="checkinFlow.updateSlider(this.value)">
-                
-                <div class="flex-row" style="margin-top: 24px;">
-                    <button class="btn btn-outline" onclick="checkinFlow.prevStep()">Back</button>
-                    <button class="btn btn-primary" onclick="checkinFlow.nextStep()">Next</button>
-                </div>
-            </div>
-
-            <!-- Step 3: Summary -->
-            <div id="step-3" class="step">
-                <h2 class="text-center">Summary</h2>
-                <div style="background: var(--bg); padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
-                        <span>Exercise:</span>
-                        <strong id="sum-exercise"></strong>
-                    </div>
-                    <div style="display:flex; justify-content:space-between;">
-                        <span>Pain Level:</span>
-                        <strong id="sum-pain"></strong>
-                    </div>
-                </div>
-                
-                <button class="btn btn-success" style="margin-bottom: 10px;" onclick="checkinFlow.finish()">Save & Done! 🎉</button>
-                <button class="btn btn-outline" onclick="app.closeCheckInModal()">Cancel</button>
-            </div>
-
+            <input type="range" id="pain-slider" min="0" max="10" value="0" style="width:100%">
+            <p id="pain-val">Pain Level: 0</p>
+            <button class="btn-primary" onclick="app.saveCheckIn()">Save Entry</button>
+            <button class="btn-primary" style="background:transparent; color:#64748b; border:1px solid #e2e8f0; margin-top:10px;" onclick="app.closeCheckIn()">Cancel</button>
         </div>
     </div>
 
-    <!-- SHARE MODAL -->
-    <dialog id="share-dialog" style="border:none; padding:0; border-radius:12px; max-width:90%; width: 400px;">
-        <div style="padding:20px; text-align: center;">
-            <h3>Share Your Progress</h3>
-            <canvas id="share-canvas" width="600" height="400" style="max-width: 100%; border:1px solid #eee; border-radius:8px; margin: 10px 0;"></canvas>
-            <button class="btn btn-primary" onclick="app.downloadShare()">Download Image</button>
-            <button class="btn btn-outline" style="margin-top:8px;" onclick="document.getElementById('share-dialog').close()">Close</button>
-        </div>
-    </dialog>
-
     <script>
-        // --- APP DATA & STATE ---
-        // We use a simple namespace strategy: bt_data_USERNAME
-        const appData = {
-            checkIns: [],
-            settings: { firstTime: true },
-            currentUser: localStorage.getItem('bt_current_user') || 'User'
+        // --- CONFIGURATION ---
+        // REPLACE THE OBJECT BELOW WITH YOUR FIREBASE PROJECT CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyBIKH1UPdSez2bvFvmzx6U7dSEpRCCxgK0",
+            authDomain: "back-track-d530d.firebaseapp.com",
+            databaseURL: "https://back-track-d530d-default-rtdb.firebaseio.com",
+            projectId: "back-track-d530d",
+            storageBucket: "back-track-d530d.firebasestorage.app",
+            messagingSenderId: "218745768188",
+            appId: "1:218745768188:web:1a7b5711e1b4419caf2f79"
         };
 
-        const SAMPLE_DATA = [
-            { date: '2023-09-01', exercised: true, painLevel: 8 },
-            { date: '2023-09-02', exercised: true, painLevel: 7 },
-            { date: '2023-09-03', exercised: true, painLevel: 6 },
-            { date: '2023-09-04', exercised: false, painLevel: 7 },
-            { date: '2023-09-05', exercised: true, painLevel: 5 },
-            { date: '2023-09-06', exercised: true, painLevel: 4 },
-            { date: '2023-09-07', exercised: true, painLevel: 3 }
-        ];
+        // --- GLOBAL STATE ---
+        const db = window.fbLib.initializeApp(firebaseConfig);
+        const rtdb = window.fbLib.getDatabase(db);
+        
+        const state = {
+            userKey: null, // e.g. "johnsmith-1234"
+            userData: null, // The full object from Firebase
+            checkIns: []
+        };
 
-        // --- UTILS ---
-        const $ = (id) => document.getElementById(id);
-        const todayStr = () => new Date().toISOString().split('T')[0];
-        const getStorageKey = () => `bt_data_${appData.currentUser}`;
+        // --- AUTH / LOGIN MANAGER ---
+        const authManager = {
+            inputs: {
+                name: document.getElementById('login-name'),
+                pin: document.getElementById('login-pin'),
+                btn: document.getElementById('btn-login'),
+                loader: document.getElementById('login-loader'),
+                errors: {
+                    name: document.getElementById('name-error'),
+                    pin: document.getElementById('pin-error')
+                }
+            },
 
-        // --- APP LOGIC ---
-        const app = {
             init: function() {
-                this.loadData();
-                this.updateUserDisplay();
-                this.renderDashboard();
-                window.addEventListener('resize', this.postMessageHeight);
-                setTimeout(this.postMessageHeight, 500);
-            },
-
-            loadData: function() {
-                const stored = localStorage.getItem(getStorageKey());
-                if (stored) {
-                    const parsed = JSON.parse(stored);
-                    appData.checkIns = parsed.checkIns || [];
-                    appData.settings = parsed.settings || { firstTime: false };
-                }
-            },
-
-            saveData: function() {
-                localStorage.setItem(getStorageKey(), JSON.stringify({
-                    checkIns: appData.checkIns,
-                    settings: appData.settings
-                }));
-                // Save current user state globally
-                localStorage.setItem('bt_current_user', appData.currentUser);
-            },
-
-            switchUser: function() {
-                const input = $('username-input');
-                const name = input.value.trim();
-                
-                if(!name) {
-                    alert("Please enter a name");
-                    return;
+                // 1. Check Auto-Login
+                const savedUser = localStorage.getItem('currentUserKey');
+                if (savedUser) {
+                    this.verifyUser(savedUser);
                 }
 
-                if(name === appData.currentUser) {
-                    alert("You are already using this name!");
-                    return;
-                }
-
-                // Save current user's data before switching
-                this.saveData();
-
-                // Switch
-                appData.currentUser = name;
-                $('username-input').value = '';
+                // 2. Setup Listeners
+                this.inputs.name.addEventListener('input', () => this.validate());
+                this.inputs.pin.addEventListener('input', () => this.validate());
                 
-                // Reload data for new user
-                this.loadData();
-                this.updateUserDisplay();
-                this.renderDashboard();
-                
-                this.showToast(`Switched to ${name}`);
+                // PIN Toggle
+                document.getElementById('pin-toggle').addEventListener('click', (e) => {
+                    const input = this.inputs.pin;
+                    input.type = input.type === 'password' ? 'text' : 'password';
+                    e.target.textContent = input.type === 'password' ? '👁️' : '🚫';
+                });
+
+                // Login Button
+                this.inputs.btn.addEventListener('click', () => this.login());
             },
 
-            updateUserDisplay: function() {
-                $('current-user-display').textContent = appData.currentUser;
-            },
+            validate: function() {
+                const name = this.inputs.name.value;
+                const pin = this.inputs.pin.value;
+                let valid = true;
 
-            postMessageHeight: function() {
-                if(window.parent !== window) {
-                    window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
-                }
-            },
-
-            getData: function() {
-                return appData.checkIns.length > 0 ? appData.checkIns : SAMPLE_DATA;
-            },
-
-            showToast: function(msg) {
-                const div = document.createElement('div');
-                div.textContent = msg;
-                div.style.cssText = `
-                    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
-                    background: #333; color: white; padding: 12px 24px; border-radius: 30px;
-                    font-size: 14px; z-index: 1000; opacity: 0; transition: opacity 0.3s;
-                `;
-                document.body.appendChild(div);
-                setTimeout(() => div.style.opacity = '1', 10);
-                setTimeout(() => {
-                    div.style.opacity = '0';
-                    setTimeout(() => div.remove(), 300);
-                }, 3000);
-            },
-
-            renderDashboard: function() {
-                const data = this.getData();
-                const todayEntry = appData.checkIns.find(c => c.date === todayStr());
-
-                // 1. Status Card (Main Action)
-                const statusEl = $('status-summary');
-                const btn = $('main-action-btn');
-                
-                if (todayEntry) {
-                    statusEl.innerHTML = `Logged: Pain ${todayEntry.painLevel}/10`;
-                    btn.textContent = "Update Entry";
-                    btn.classList.replace('btn-primary', 'btn-outline');
+                // Name Validation: min 2 chars, letters (and spaces allowed for display, stripped for logic)
+                const nameRegex = /^[a-zA-Z\s]{2,}$/;
+                if (!nameRegex.test(name)) {
+                    this.inputs.errors.name.classList.add('visible');
+                    valid = false;
                 } else {
-                    statusEl.textContent = "Not logged yet";
-                    btn.textContent = "Start Today ✅";
-                    btn.classList.replace('btn-outline', 'btn-primary');
+                    this.inputs.errors.name.classList.remove('visible');
                 }
 
-                // 2. Streaks
-                const streak = this.calcStreak(appData.checkIns);
-                const streakEl = $('streak-display');
-                if (streak === 0) streakEl.textContent = "Start your streak!";
-                else streakEl.textContent = `🔥 ${streak} Days`;
-
-                const weekCount = appData.checkIns.filter(c => {
-                    const d = new Date(c.date);
-                    const now = new Date();
-                    const diff = (now - d) / (1000 * 60 * 60 * 24);
-                    return diff < 7 && c.exercised;
-                }).length;
-                $('weekly-display').textContent = `${weekCount}/7`;
-
-                // 3. Badges & Progress
-                this.renderBadges(streak);
-                
-                // 4. Chart
-                this.renderChart(data);
-
-                // 5. Settings Toggle
-                if (this.currentTab === 'settings') $('settings-view').classList.remove('hidden');
-                else $('settings-view').classList.add('hidden');
-            },
-
-            calcStreak: function(checks) {
-                if (checks.length === 0) return 0;
-                const sorted = [...checks].sort((a,b) => new Date(b.date) - new Date(a.date));
-                const today = new Date(todayStr());
-                const latest = new Date(sorted[0].date);
-                const diffDays = Math.floor((today - latest) / (1000*60*60*24));
-                
-                if (diffDays > 1) return 0;
-                
-                let count = 0;
-                let currentDate = new Date(today);
-                
-                for (let i = 0; i < 365; i++) {
-                    const dStr = currentDate.toISOString().split('T')[0];
-                    const entry = checks.find(c => c.date === dStr);
-                    if (entry && entry.exercised) {
-                        count++;
-                    } else if (entry && !entry.exercised) {
-                        break;
-                    } else if (!entry && dStr !== todayStr()) {
-                        break;
-                    }
-                    currentDate.setDate(currentDate.getDate() - 1);
+                // PIN Validation: exactly 4 digits
+                const pinRegex = /^\d{4}$/;
+                if (!pinRegex.test(pin)) {
+                    this.inputs.errors.pin.classList.add('visible');
+                    valid = false;
+                } else {
+                    this.inputs.errors.pin.classList.remove('visible');
                 }
-                return count;
+
+                this.inputs.btn.disabled = !valid;
+                return valid;
             },
 
-            renderBadges: function(streak) {
-                const badges = [
-                    { id: 7, name: "Week Warrior", icon: "🏆" },
-                    { id: 14, name: "Two Week Titan", icon: "💪" },
-                    { id: 30, name: "Month Master", icon: "⭐" },
-                    { id: 60, name: "Consistency King", icon: "👑" }
-                ];
-
-                const container = $('badge-container');
-                container.innerHTML = '';
+            login: function() {
+                const rawName = this.inputs.name.value.trim();
+                const pin = this.inputs.pin.value;
                 
-                let nextBadge = badges[0];
-                let prevTarget = 0;
+                // Normalize Name: lowercase, remove spaces
+                const normalizedName = rawName.toLowerCase().replace(/\s+/g, '');
+                const userKey = `${normalizedName}-${pin}`;
 
-                badges.forEach(b => {
-                    const unlocked = streak >= b.id;
-                    const div = document.createElement('div');
-                    div.className = `badge-item ${unlocked ? 'unlocked' : ''}`;
-                    div.innerHTML = `<span class="badge-icon">${b.icon}</span><span class="badge-name">${b.name}</span>`;
-                    container.appendChild(div);
-
-                    if (!unlocked && nextBadge.id >= b.id) nextBadge = b;
-                    if (unlocked) prevTarget = b.id;
-                });
-
-                const progress = streak - prevTarget;
-                const total = nextBadge.id - prevTarget;
-                const pct = Math.min(100, Math.max(0, (progress/total)*100));
-                
-                $('badge-progress').style.width = `${pct}%`;
-                $('next-badge-icon').textContent = nextBadge.icon;
-                $('next-badge-text').textContent = `${nextBadge.id - streak} days to ${nextBadge.name}`;
+                this.setLoading(true);
+                this.verifyUser(userKey, rawName);
             },
 
-            renderChart: function(data) {
-                const ctx = $('painChart').getContext('2d');
+            verifyUser: function(key, displayName = null) {
+                const userRef = window.fbLib.ref(rtdb, 'users/' + key);
                 
-                const labels = data.map(d => d.date.slice(5)); 
-                const painLevels = data.map(d => d.painLevel);
+                window.fbLib.get(userRef).then((snapshot) => {
+                    this.setLoading(false);
 
-                const isSample = appData.checkIns.length === 0;
-                $('trend-insight').textContent = isSample 
-                    ? "👀 Showing sample data. Log first entry to start!" 
-                    : "Your recovery journey";
-
-                if (window.myChart) window.myChart.destroy();
-
-                window.myChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Pain Level',
-                            data: painLevels,
-                            borderColor: '#3b82f6',
-                            backgroundColor: (context) => {
-                                const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-                                gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-                                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-                                return gradient;
-                            },
-                            fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: painLevels.map(p => {
-                                if(p <= 3) return '#22c55e';
-                                if(p <= 6) return '#f97316';
-                                return '#ef4444';
-                            }),
-                            pointRadius: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                max: 10,
-                                grid: {
-                                    color: (ctx) => {
-                                        if (ctx.tick.value > 6) return 'rgba(239, 68, 68, 0.1)';
-                                        if (ctx.tick.value > 3) return 'rgba(249, 115, 22, 0.1)';
-                                        return 'rgba(34, 197, 94, 0.1)';
-                                    }
-                                }
-                            },
-                            x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } }
+                    if (snapshot.exists()) {
+                        // SCENARIO: Existing User
+                        const data = snapshot.val();
+                        state.userKey = key;
+                        state.userData = data;
+                        state.checkIns = data.checkIns || [];
+                        
+                        localStorage.setItem('currentUserKey', key);
+                        app.showDashboard(`Welcome back, ${data.name}!`);
+                    } else {
+                        // SCENARIO: New User
+                        if(!displayName) {
+                            // Auto-login failed (key invalid or deleted)
+                            this.logout(); 
+                            return;
                         }
-                    }
-                });
-            },
 
-            toggleAccordion: function(id) {
-                const el = $('acc-' + id);
-                const arrow = $('arrow-' + id);
-                el.classList.toggle('open');
-                arrow.textContent = el.classList.contains('open') ? '▲' : '▼';
-            },
+                        const newUser = {
+                            name: displayName,
+                            pin: key.split('-')[1], // Extract pin for storage
+                            checkIns: [],
+                            currentStreak: 0,
+                            longestStreak: 0,
+                            badges: []
+                        };
 
-            switchTab: function(tab) {
-                this.currentTab = tab;
-                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-                if(tab === 'dashboard') document.querySelectorAll('.nav-item')[0].classList.add('active');
-                if(tab === 'settings') document.querySelectorAll('.nav-item')[2].classList.add('active');
-                
-                this.renderDashboard();
-                $('main-scroll').scrollTop = 0;
-            },
-
-            openCheckInModal: function() {
-                checkinFlow.reset();
-                $('checkin-modal').classList.add('active');
-            },
-            closeCheckInModal: function() {
-                $('checkin-modal').classList.remove('active');
-            },
-
-            clearData: function() {
-                if(confirm(`Delete all history for ${appData.currentUser}?`)) {
-                    appData.checkIns = [];
-                    this.saveData();
-                    this.renderDashboard();
-                }
-            },
-            exportData: function() {
-                const str = JSON.stringify({
-                    ...appData,
-                    currentUser: appData.currentUser // Keep username info in export
-                });
-                const uri = "data:application/json;charset=utf-8,"+encodeURIComponent(str);
-                const link = document.createElement("a");
-                link.href = uri;
-                link.download = `backtracker-${appData.currentUser}.json`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            },
-            importData: function(input) {
-                const file = input.files[0];
-                if(!file) return;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const json = JSON.parse(e.target.result);
-                        if(json.checkIns) {
-                            // If the imported file has a username, ask if we want to switch to that user
-                            if(json.currentUser && json.currentUser !== appData.currentUser) {
-                                if(confirm(`Switch user to ${json.currentUser} to load this data?`)) {
-                                    appData.currentUser = json.currentUser;
-                                }
-                            }
+                        // Create User in Firebase
+                        window.fbLib.set(userRef, newUser).then(() => {
+                            state.userKey = key;
+                            state.userData = newUser;
+                            state.checkIns = [];
                             
-                            appData.checkIns = json.checkIns;
-                            appData.settings = json.settings || { firstTime: false };
-                            this.saveData();
-                            this.updateUserDisplay();
-                            alert("Restored!");
-                            this.renderDashboard();
-                        }
-                    } catch(err) { alert("Invalid file"); }
-                };
-                reader.readAsText(file);
-            },
-
-            // --- SHARE FUNCTIONALITY ---
-            shareProgress: function() {
-                const cvs = $('share-canvas');
-                const ctx = cvs.getContext('2d');
-                
-                // Clear
-                ctx.clearRect(0,0, cvs.width, cvs.height);
-                
-                // Background
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0,0,600,400);
-                
-                // Header Box
-                ctx.fillStyle = '#3b82f6';
-                ctx.fillRect(0,0,600,100);
-                
-                // Text
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 30px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('My Back Recovery', 300, 50);
-                
-                // Stats
-                ctx.fillStyle = '#1e293b';
-                ctx.font = 'bold 60px Arial';
-                const streak = this.calcStreak(appData.checkIns);
-                ctx.fillText(streak === 0 ? "Start" : `${streak} Days`, 300, 200);
-                
-                ctx.fillStyle = '#64748b';
-                ctx.font = '20px Arial';
-                ctx.fillText('Current Streak', 300, 240);
-
-                // Badge Count
-                const badgeCount = document.querySelectorAll('.badge-item.unlocked').length;
-                ctx.fillStyle = '#f59e0b';
-                ctx.fillText(`🏆 ${badgeCount} Badges Earned`, 300, 320);
-                
-                ctx.fillStyle = '#e2e8f0';
-                ctx.font = '14px Arial';
-                ctx.fillText(`User: ${appData.currentUser}`, 300, 380);
-
-                $('share-dialog').showModal();
-            },
-            
-            downloadShare: function() {
-                const link = document.createElement('a');
-                link.download = 'my-progress.png';
-                link.href = $('share-canvas').toDataURL();
-                link.click();
-            }
-        };
-
-        // --- CHECK-IN FLOW LOGIC ---
-        const checkinFlow = {
-            data: { exercised: false, painLevel: 0 },
-            
-            reset: function() {
-                this.data = { exercised: false, painLevel: 0 };
-                this.showStep(1);
-                $('pain-slider').value = 0;
-                this.updateSlider(0);
-            },
-
-            showStep: function(num) {
-                document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
-                $(`step-${num}`).classList.add('active');
-            },
-
-            selectExercise: function(val) {
-                this.data.exercised = val;
-                this.nextStep();
-            },
-
-            updateSlider: function(val) {
-                this.data.painLevel = parseInt(val);
-                const display = $('pain-val-display');
-                display.textContent = val;
-                display.className = ''; 
-                
-                if(val <= 3) display.style.color = 'var(--success)';
-                else if(val <= 6) display.style.color = 'var(--warning)';
-                else display.style.color = 'var(--danger)';
-            },
-
-            prevStep: function() {
-                const current = document.querySelector('.step.active').id;
-                const num = parseInt(current.split('-')[1]);
-                if(num > 1) this.showStep(num - 1);
-            },
-
-            nextStep: function() {
-                const current = document.querySelector('.step.active').id;
-                const num = parseInt(current.split('-')[1]);
-                
-                if(num === 2) {
-                    $('sum-exercise').textContent = this.data.exercised ? "Yes ✅" : "No ❌";
-                    $('sum-pain').textContent = `${this.data.painLevel}/10`;
-                    this.showStep(3);
-                } else if (num < 3) {
-                    this.showStep(num + 1);
-                }
-            },
-
-            finish: function() {
-                const today = todayStr();
-                const entry = {
-                    date: today,
-                    exercised: this.data.exercised,
-                    painLevel: this.data.painLevel
-                };
-
-                const idx = appData.checkIns.findIndex(c => c.date === today);
-                if(idx > -1) appData.checkIns[idx] = entry;
-                else appData.checkIns.push(entry);
-
-                app.saveData();
-                app.closeCheckInModal();
-                app.renderDashboard();
-
-                if(this.data.exercised) fireConfetti();
-            }
-        };
-
-        // --- CONFETTI ---
-        function fireConfetti() {
-            const cvs = $('confetti-canvas');
-            const ctx = cvs.getContext('2d');
-            cvs.width = window.innerWidth;
-            cvs.height = window.innerHeight;
-            
-            const particles = [];
-            const colors = ['#3b82f6', '#22c55e', '#f97316', '#ef4444'];
-            
-            for(let i=0; i<80; i++) {
-                particles.push({
-                    x: cvs.width/2, y: cvs.height/2,
-                    vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15-5,
-                    color: colors[Math.floor(Math.random()*colors.length)],
-                    size: Math.random()*8+4
-                });
-            }
-            
-            function animate() {
-                ctx.clearRect(0,0,cvs.width,cvs.height);
-                let active = false;
-                particles.forEach(p => {
-                    p.x += p.vx;
-                    p.y += p.vy;
-                    p.vy += 0.5; 
-                    if(p.y < cvs.height) {
-                        active = true;
-                        ctx.fillStyle = p.color;
-                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                            localStorage.setItem('currentUserKey', key);
+                            app.showDashboard("Welcome!");
+                        }).catch((error) => {
+                            alert("Error creating user: " + error.message);
+                        });
                     }
+                }).catch((error) => {
+                    this.setLoading(false);
+                    alert("Connection Error: " + error.message);
                 });
-                if(active) requestAnimationFrame(animate);
-            }
-            animate();
-        }
+            },
 
-        window.addEventListener('DOMContentLoaded', () => app.init());
+            logout: function() {
+                localStorage.removeItem('currentUserKey');
+                location.reload();
+            },
+
+            setLoading: function(isLoading) {
+                if(isLoading) this.inputs.loader.classList.add('active');
+                else this.inputs.loader.classList.remove('active');
+            }
+        };
+
+        // --- APP LOGIC (DASHBOARD) ---
+        const app = {
+            screens: {
+                login: document.getElementById('login-screen'),
+                app: document.getElementById('app-screen')
+            },
+            
+            showDashboard: function(msg) {
+                this.screens.login.style.display = 'none';
+                this.screens.app.style.display = 'flex';
+                if(msg) {
+                    document.getElementById('welcome-msg').textContent = msg;
+                    document.getElementById('welcome-msg').style.color = 'var(--primary)';
+                    setTimeout(() => document.getElementById('welcome-msg').style.color = 'var(--text)', 2000);
+                }
+                this.updateStats();
+            },
+
+            updateStats: function() {
+                const streak = this.calcStreak();
+                document.getElementById('dash-streak').textContent = streak;
+                
+                // Update Streak in Firebase (Optional: could be done on check-in)
+                // For simplicity in this demo, we calculate dynamically
+            },
+
+            calcStreak: function() {
+                if(state.checkIns.length === 0) return 0;
+                // Simple streak logic: consecutive days with exercise = true
+                // Sorting dates descending
+                const sorted = [...state.checkIns].sort((a,b) => new Date(b.date) - new Date(a.date));
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                
+                let streak = 0;
+                let checkDate = new Date(today);
+                
+                // Check backwards
+                for(let i=0; i<365; i++) {
+                    const dateStr = checkDate.toISOString().split('T')[0];
+                    const entry = state.checkIns.find(c => c.date === dateStr);
+                    
+                    if(entry && entry.exercised) {
+                        streak++;
+                    } else if (entry && !entry.exercised) {
+                        break; // Streak broken by missed day
+                    } else if (!entry && i > 0) {
+                        break; // Streak broken by missing data
+                    }
+                    checkDate.setDate(checkDate.getDate() - 1);
+                }
+                return streak;
+            },
+
+            openCheckIn: function() {
+                document.getElementById('checkin-modal').classList.add('active');
+                document.getElementById('pain-slider').value = 0;
+                this.updatePainDisplay(0);
+            },
+
+            closeCheckIn: function() {
+                document.getElementById('checkin-modal').classList.remove('active');
+            },
+
+            updatePainDisplay: function(val) {
+                document.getElementById('pain-val').textContent = `Pain Level: ${val}`;
+            },
+
+            saveCheckIn: function() {
+                const pain = document.getElementById('pain-slider').value;
+                const today = new Date().toISOString().split('T')[0];
+                
+                // Add Entry
+                const entry = { date: today, painLevel: parseInt(pain), exercised: true }; // Simplified: assuming exercised if clicking Check-In
+                state.checkIns.push(entry);
+
+                // Save to Firebase
+                const userRef = window.fbLib.ref(rtdb, 'users/' + state.userKey);
+                // We update the checkIns array. Note: Realtime DB handles array indexes carefully.
+                // Simple set update:
+                window.fbLib.set(userRef, {
+                    ...state.userData,
+                    checkIns: state.checkIns
+                }).then(() => {
+                    this.closeCheckIn();
+                    this.updateStats();
+                    alert("Saved!");
+                });
+            }
+        };
+
+        // Slider Listener
+        document.getElementById('pain-slider').addEventListener('input', (e) => {
+            app.updatePainDisplay(e.target.value);
+        });
+
+        // --- INITIALIZATION ---
+        window.addEventListener('DOMContentLoaded', () => {
+            authManager.init();
+        });
 
     </script>
 </body>
